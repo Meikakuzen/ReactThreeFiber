@@ -412,7 +412,7 @@ extend({OrbitControls})
 
 # WITH useThree WE GET THE STATE
 
-- I can use desestructuring to get the values
+- I can use desestructuring to get the values from useThree
 - I pass it to orbitControls with an array in args
 
 ~~~js
@@ -626,4 +626,342 @@ export default CustomObject
 
 > import * as THREE from 'three'
 
-- 1:26:26
+- Now I can use de DoubleSide to see the both faces
+
+~~~js
+    <mesh>
+        <bufferGeometry>
+            <bufferAttribute 
+                attach="attributes-position" //it will be 
+                count={verticesCount}
+                itemSize={3} //(x,y,z)
+                array={positions} //random, any weird figure can appear
+            />
+        </bufferGeometry>
+        <meshBasicMaterial color="red" side={THREE.DoubleSide}/>
+    </mesh>
+~~~
+----
+## OPTIMICE VERTICES WITH USING USEMEMO
+
+- WE MADE A MISTAKE
+- The code inde CustomObject will be called everytime the compoennt needs to be drawn
+- In this case I only have 10 triangles, but it can be thousands, so it's important to optimize it
+- useMemo will keep the value i want and give it as a memory
+- We can specify when useMemo will forget the value and save the new value again
+- With an empty array will kepp the value forever
+- I put the Float32Array and the for loop inside the useMemo
+- And I return the positions
+
+~~~js
+    const positions= useMemo(()=>{
+        const positions= new Float32Array(verticesCount * 3) //Each vertex needs 3 points(x,y,z)
+    
+        for(let i = 0; i < verticesCount * 3; i++){
+            positions[i]= (Math.random() - 0.5) * 3 //Math random will go from -0.5 to positive 0.5. Random triangles
+        }
+
+        return positions
+    }, [])
+  ~~~
+
+  - You can use useState in place of useMemo in this case. We will see it later
+
+---
+
+## COMPUTE VERTEX NORMAL
+- If I change it to a StandardMaterial the light don't affect it, everything is dark in our CustomObject
+- We dont provide some normals, so is missing data here
+- Normals are associations with vertex that telling where is the outside. 
+- Instead of calculating and sending our own normal attribute, we can ask Three.js to do it with **computeVertexNormals** on bufferGeometry
+- You need useRef
+
+~~~js
+
+    const geometryRef= useRef()
+
+    geometryRef.current.computeVertexNormals()
+
+  return (
+    <mesh>
+        <bufferGeometry ref={geometryRef}>
+            <bufferAttribute 
+                attach="attributes-position" //it will be 
+                count={verticesCount}
+                itemSize={3} //(x,y,z)
+                array={positions} //random, any weird figure can appear
+
+            />
+        </bufferGeometry>
+        <meshStandardMaterial color="red" side={THREE.DoubleSide}/>
+    </mesh>
+  )
+~~~
+
+- Now we have a problem. If I reload the app crashes because it's nothing as a ref in bufferGeometry
+- It's because the JSX does not been rendered in to a Three.js
+- We need to wait the first render to be done with useEffect
+
+~~~js
+    useEffect(()=>{
+        geometryRef.current.computeVertexNormals()
+
+    },[])
+~~~
+---
+
+## CHANGE SETTINGS
+
+- Sometimes we need to change the settings
+- These settings are still accesible and most of them can be changed with attributes on the Canvas element
+  - fov is a field of view
+
+~~~js
+import { Canvas } from "@react-three/fiber"
+import Experience from "./components/Experience"
+
+function App() {
+ 
+  return (
+      <Canvas 
+          camera={{
+            fov: 45,
+            near: 0.1,
+            far: 200,
+            position:[3,2,6]
+          }}>
+        <Experience />
+      </Canvas>
+  )
+}
+
+export default App
+~~~
+
+- How can I add an OrthographicCamera?
+- But now the scene appears too far
+- If I adjust the values top, left, right, and bottom I will get close but I can use the property zoom
+~~~js
+      <Canvas 
+          orthographic
+          camera={{
+            fov: 45,
+            near: 0.1,
+            far: 200,
+            position:[3,2,6],
+            zoom: 100
+          }}>
+        <Experience />
+      </Canvas>
+~~~
+
+- I can put those values in an object and put it on camera
+
+~~~js
+  const cameraSettings={
+    fov: 45,
+    near: 0.1,
+    far: 200,
+    position:[3,2,6],
+  }
+
+  return (
+      <Canvas
+          camera={cameraSettings}>
+        <Experience />
+      </Canvas>
+  )
+~~~
+
+- I removed the ortographic and the zoom
+-----
+
+## LOOK AT THE CENTER OF THE SCENE
+
+- Remove orbitControls
+- We need to move the camera in x and z, not y
+- So we will create an angle and use sinus(x) and cosinus(z) (trigonometry) to calculate the position in a circle
+- First we need to get acces to camera, it's in the state from useFrame
+- I need the elapsed time. I can use Date.now() and that stuff but are other ways like state.clock.elapsedTime
+- You can use the method state.clock.getElapsedTime() to get a single value
+- If you want the circle bigger, you can multiply the values
+
+~~~js
+  useFrame((state, delta)=>{
+    cubeRef.current.rotation.y += delta
+
+    const angle= state.clock.elapsedTime
+    state.camera.position.x = Math.sin(angle) * 8
+    state.camera.position.z = Math.cos(angle) * 8
+  })
+~~~
+
+- To centrate the camera I can use a method called lookAt()
+
+~~~js
+  useFrame((state, delta)=>{
+    cubeRef.current.rotation.y += delta
+
+    const angle= state.clock.elapsedTime
+    state.camera.position.x = Math.sin(angle) * 8
+    state.camera.position.z = Math.cos(angle) * 8
+    state.camera.lookAt(0,0,0)
+  })
+~~~
+
+- Just for fun. I will comment this animation and put orbitControls again
+
+----
+
+## The Antialias
+
+- The antialias it's on by default
+- We can remove it adding a gl attribute to the Canvas and send it an object, as we did with the camera
+
+~~~js
+return (
+      <Canvas
+          camera={cameraSettings}
+          gl={{
+            antialias: false
+          }}>
+            
+        <Experience />
+      </Canvas>
+  )
+~~~
+---
+## TONE MAPPING
+
+- R3F sets the toneMapping to ACESFilmicToneMapping
+- Tone mapping is used when you have extrem and dinamic values, like now I look up and see the sun, and look down and see my shadow
+- A high dynamic range
+- Values that go beyond the classic ranges like 0 to 1
+- Then you compressed this values to a range from 0 to 1. Thats what's toneMapping is doing
+
+- It's not a true HDR to LDR since the default render is already in LDR, but it tweaks the color to make it look like HDR
+- To remove it we can add the flat attribute to the Canvas
+
+~~~js
+return (
+      <Canvas
+        flat
+          camera={cameraSettings}
+          gl={{
+            antialias: false
+          }}>
+            
+        <Experience />
+      </Canvas>
+  )
+~~~
+- You can provide your own toneMapping
+- Import Three.js
+
+> import * as THREE from 'three'
+
+> console.log(THREE.CineonToneMapping) // It's just a number, but it's the number that I have to provide
+
+- Remove flat
+
+~~~js
+  return (
+      <Canvas
+        
+          camera={cameraSettings}
+          gl={{
+            antialias: true,
+            toneMapping: THREE.CineonToneMapping //or THREE.ACESFilmicToneMapping as it's by default
+          }}
+          >
+            
+        <Experience />
+      </Canvas>
+  )
+~~~
+---
+## OUTPUT ENCODING
+
+- The ouptutEncoding it's already set to sRGBEncoding
+- Color encoding is a way of encoding and decoding colors, so we store color info in a better and optimised way, since we are limited by the amount of possible values by channel
+- For better results I will use sRGBEncoding
+- We usually want to put colors as sRGBEncoding as it is by default, but we can change it to LinearEncoding if needed
+
+~~~js
+  return (
+      <Canvas
+          camera={cameraSettings}
+          gl={{
+            antialias: true,
+            toneMapping: THREE.ACESFilmicToneMapping ,
+            outputEncoding: THREE.LinearEncoding
+          }}
+          >
+            
+        <Experience />
+      </Canvas>
+  )
+~~~
+----
+
+## ALPHA
+
+- The background of the render is transparent by default
+- I can use CSS to change the background
+- In another lesson we will cover the change of transparent render
+
+## PIXEL RATIO
+
+- R3F handles the pixel ratio automatically
+- It's a good practice to clamp it in order to avoid performance issues on devices with very high pixel ratio
+- We can force it by sending an specific value to the dpr attribute on Canvas
+
+~~~js
+  return (
+      <Canvas
+          dpr={1}
+          camera={cameraSettings}
+          gl={{
+            antialias: true,
+            toneMapping: THREE.ACESFilmicToneMapping ,
+            outputEncoding: THREE.LinearEncoding
+          }}
+          >
+            
+        <Experience />
+      </Canvas>
+  )
+~~~
+
+- I can put an array of range
+- 1 and 2 are the values by default used by Fiber
+
+~~~js
+  return (
+      <Canvas
+          dpr={[1,2]}
+          camera={cameraSettings}
+          gl={{
+            antialias: true,
+            toneMapping: THREE.ACESFilmicToneMapping ,
+            outputEncoding: THREE.LinearEncoding
+          }}
+          >
+            
+        <Experience />
+      </Canvas>
+  )
+~~~
+----
+
+## PERFORMANCE
+
+Everything apllies in Three.js apllies here
+  - Minimise draw calls
+  - Simplify models
+  - Avoid big textures, etc
+
+- Look at
+  - "Awwwards-type" website by Paul Henschel => TUTORIAL ADVANCED FOR THREE.JS WEBSITES
+  - poimandres
+  - Three.js Journey lessons with r3F by @HazemOlbrahim
